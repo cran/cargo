@@ -1,1 +1,1 @@
-"${R_HOME}"/bin${R_ARCH_BIN}/Rscript -e "source('R/cargo.R')" -e "config(TRUE)"
+"${R_HOME}"/bin${R_ARCH_BIN}/Rscript -e "source('R/cargo.R')" -e "is_available()"

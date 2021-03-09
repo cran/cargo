@@ -2,59 +2,43 @@
 % Please edit documentation in R/cargo.R
 \name{run}
 \alias{run}
-\title{Run the Cargo Command}
+\title{Run Cargo}
 \usage{
-run(..., minimum_version, verbose)
+run(..., verbose = TRUE)
 }
 \arguments{
 \item{...}{Arguments passed to \code{\link{system2}}, although the
 \code{command} argument is set to \code{cargo} by this function and cannot
 be set by the user.}
 
-\item{minimum_version}{A character string representing the minimum Rust
-version that is needed.  The function runs \code{rustup update} if the
-currently installed Cargo version does not meet the supplied minimum
-version.}
-
-\item{verbose}{Should the configuration information be written to the console
-before running Cargo?}
+\item{verbose}{Should debugging information be written to the console before
+running Cargo?}
 }
 \value{
-The result of the underlying call to the \code{system2} function
-used to run Cargo is returned, or \code{NULL} if Cargo is not available.
+The result of the underlying call to the \code{system2} function used
+to run Cargo is returned or, if Cargo is not found, an error is thrown.
 }
 \description{
-This function invokes this package's installation of Cargo (Rust's package
-manager) with \code{...} arguments passed to \code{\link[=system2]{system2()}}.
+This function finds and invokes Cargo (Rust's package manager) with
+\code{...} arguments passed to \code{\link[=system2]{system2()}} but, by default, does not write to
+the user's file system (e.g., \code{~/.cargo}) to comply with CRAN policies.
 }
 \details{
-If not already available, this function first tries to installs Cargo using
-\code{rustup} (Rust's installer) in a subdirectory of
-\code{tools::R_user_dir("cargo", "cache")}.  If Cargo is not available and
-cannot be installed, \code{NULL} is returned.  Likewise, for testing
-purposes, \code{NULL} is returned if the \code{R_CARGO_FORCE_FAIL}
-environment variable equals \code{"TRUE"}.
-
-By default, all writes to disk are temporarily and removed after each call.
-To avoid this, set the \code{R_CARGO_SAVE_CACHE} environment variable to
-\code{TRUE}, which will then allow caching between calls to this function. If
-defined, the \code{R_CARGO_HOME} environment variable will be used as the
-cache location. Otherwise, the \code{R_PACKAGE_NAME} environment variable
-(which is set by R while installing a source package) will be used to set the
-cache path as follows:
-\code{file.path(tools::R_user_dir(Sys.getenv("R_PACKAGE_NAME"), "cache"),
-"cargo")}.  Lacking either of those, this package's own cache is used.
-Regardless of the location, the user is responsible to maintaining and
-clearing the cache when using the \code{R_CARGO_SAVE_CACHE} environment
-variable.
+To enable caching, set the \code{R_CARGO_SAVE_CACHE} environment variable to
+\code{TRUE}. Then, if defined, the \code{R_CARGO_HOME} environment variable
+will be used as the cache location. Otherwise, Cargo uses its default
+behavior (usually writing to \code{~/.cargo} unless the \code{CARGO_HOME}
+environment variable is set). Regardless of the location, the user is
+responsible to maintaining and clearing the cache when using the
+\code{R_CARGO_SAVE_CACHE} environment variable.
 }
 \examples{
-\donttest{
-run("--version")
-run("--help")
+if ( is_available() ) {
+  run("--version")
+  run("--help")
 }
 
 }
 \seealso{
-\code{\link[base:system2]{base::system2()}}, \code{\link[base:Sys.setenv]{base::Sys.setenv()}}, \code{\link[tools:userdir]{tools::R_user_dir()}}
+\code{\link[base:system2]{base::system2()}}, \code{\link[base:Sys.setenv]{base::Sys.setenv()}}
 }
