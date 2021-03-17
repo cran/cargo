@@ -1,8 +1,10 @@
 #' Run Cargo
 #'
-#' This function finds and invokes Cargo (Rust's package manager) with
-#' \code{...} arguments passed to [system2()] but, by default, does not write to
-#' the user's file system (e.g., \code{~/.cargo}) to comply with CRAN policies.
+#' This function finds and runs Cargo (Rust's package manager) with the
+#' \code{...} arguments passed as command line arguments but, by default, runs
+#' according to CRAN policies.  First, it does not write to the user's file
+#' system (e.g., \code{~/.cargo}). Second, it only uses at most two parallel
+#' jobs when building (i.e., compiling).
 #'
 #' To enable caching, set the \code{R_CARGO_SAVE_CACHE} environment variable to
 #' \code{TRUE}. Then, if defined, the \code{R_CARGO_HOME} environment variable
@@ -12,70 +14,121 @@
 #' responsible to maintaining and clearing the cache when using the
 #' \code{R_CARGO_SAVE_CACHE} environment variable.
 #'
-#' @param ... Arguments passed to \code{\link{system2}}, although the
-#'   \code{command} argument is set to \code{cargo} by this function and cannot
-#'   be set by the user.
-#' @param verbose Should debugging information be written to the console before
-#'   running Cargo?
+#' To enable a specific number of parallel jobs, set the
+#' \code{R_CARGO_BUILD_JOBS} environment variable to the desired integer. If
+#' \code{R_CARGO_BUILD_JOBS} is \code{0}, Cargo will use its default behavior
+#' (usually using all the cores unless the \code{CARGO_BUILD_JOBS} environment
+#' variable is set or the \code{--jobs} argument is provided).
 #'
-#' @return The result of the underlying call to the \code{system2} function used
-#'   to run Cargo is returned or, if Cargo is not found, an error is thrown.
+#' @param ... Character vector of command line arguments passed to the
+#'   \code{cargo} command.
+#' @param minimum_version A character string representing the minimum version of
+#'   Rust that is needed.
 #'
-#' @seealso [base::system2()], [base::Sys.setenv()]
+#' @return A logical equally \code{TRUE} if and only if the minimum version is
+#'   available and the exit status of the command is zero (indicating success).
+#'   The function should never throw a warning or error.
+#'
+#' @seealso [base::Sys.setenv()]
 #'
 #' @export
 #'
 #' @examples
-#' if ( is_available() ) {
-#'   run("--version")
-#'   run("--help")
-#' }
+#' run(minimum_version="1.50")
 #'
-run <- function(..., verbose=TRUE) {
+run <- function(..., minimum_version) {
   if ( Sys.getenv("R_CARGO_FORCE_FAIL") == "TRUE" ) {
-    stop("Cargo failed because of R_CARGO_FORCE_FAIL environment variable.")
+    cat("Cargo failed because of R_CARGO_FORCE_FAIL environment variable.\n")
+    return(FALSE)
   }
   cargo_cmd <- find_cargo()
   if ( is.null(cargo_cmd) ) {
-    stop("Cargo is not installed.  Please run 'cargo::install()'.")
-  }
-  cargo_home <- if ( Sys.getenv("R_CARGO_SAVE_CACHE") == "TRUE" ) {
-    if ( Sys.getenv("R_CARGO_HOME") != "" ) {
-      Sys.getenv("R_CARGO_HOME")
-    } else {
-      NULL
-    }
-  } else {
-    cargo_home_tmp <- file.path(tempdir(check=TRUE), "cargo")
-    on.exit(unlink(cargo_home_tmp))
-    cargo_home_tmp
+    cat("Cargo is not found. Please see the package's INSTALL instructions.\n")
+    return(FALSE)
   }
   n <- function(x) normalizePath(x, mustWork=FALSE)
-  if ( verbose ) {
-    cat(sprintf("Cargo executable: %s\n",n(cargo_cmd)))
-    if ( ! is.null(cargo_home) ) {
-      cat(sprintf("Cargo home: %s\n",n(cargo_home)))
-    } else {
-      cat("Cargo home is not set.\n")
+  cargo_cmd <- n(cargo_cmd)
+  cat(sprintf("Cargo executable: %s\n",cargo_cmd))
+  output <- suppressWarnings(system2(cargo_cmd, "--version", stdout=TRUE))
+  if ( ! is.null(attr(output,"status")) ) {
+    cat("Cargo is installed, but broken. Please see the package's INSTALL instructions.\n")
+    return(FALSE)
+  }
+  if ( ! missing(minimum_version) ) {
+    version <- tryCatch({
+      version <- strsplit(output," ",fixed=TRUE)[[1]][2]
+      if ( is.na(version) ) {
+        cat(sprintf("Problem parsing Cargo version string: '%s'. Please see the package's INSTALL instructions.\n",paste(output,collapse=",")))
+        return(FALSE)
+      }
+      if ( utils::compareVersion(version, minimum_version) < 0 ) {
+        cat(sprintf("Cargo version '%s' is installed, but '%s' is needed. Please see the package's INSTALL instructions.\n",version,minimum_version))
+        return(FALSE)
+      }
+      version
+    }, warning=function(e) e, error=function(e) e)
+    if ( inherits(version,"warning") || inherits(version,"error") ) {
+      cat(sprintf("Problem parsing Cargo version string '%s' and comparing it against '%s'. Please see the package's INSTALL instructions.\n",paste(output,collapse=","),minimum_version))
+      return(FALSE)
     }
-  }
-  if ( ! is.null(cargo_home) ) {
-    system3(command=n(cargo_cmd), ..., env=c(CARGO_HOME=n(cargo_home)))
+    cat(sprintf("Cargo version: %s\n",version))
   } else {
-    system3(command=n(cargo_cmd), ...)
+    cat("The 'minimum_version' argument will be required in the future.\n")
   }
+  env <- character()
+  if ( Sys.getenv("R_CARGO_SAVE_CACHE") == "TRUE" ) {
+    if ( Sys.getenv("R_CARGO_HOME") != "" ) {
+      env <- c(env, CARGO_HOME=n(Sys.getenv("R_CARGO_HOME")))
+    }
+  } else {
+    cargo_home <- file.path(tempdir(check=TRUE), "cargo")
+    on.exit(unlink(cargo_home))
+    env <- c(env, CARGO_HOME=n(cargo_home))
+  }
+  nCores <- Sys.getenv("R_CARGO_BUILD_JOBS","2")
+  if ( nCores != "0" ) env <- c(env, CARGO_BUILD_JOBS=nCores)
+  if ( length(env) > 0 ) {
+    cat(sprintf("Cargo environment variables explicitly set:\n    %s\n",paste(names(env), env, sep="=", collapse="\n    ")))
+  }
+  args <- c(...)
+  if ( length(args) == 0 ) return(TRUE)
+  status <- tryCatch(system3(command=cargo_cmd, args=args, env=env),
+                     warning=function(e) e, error=function(e) e)
+  if ( status != 0 || inherits(status,"warning") || inherits(status,"error") ) {
+    cat(sprintf("There was a problem in running Cargo. Please see the package's INSTALL instructions.\n"))
+    FALSE
+  } else TRUE
+}
+
+#' Test Availability of Cargo
+#'
+#' This function checks if Cargo is available on the system.
+#'
+#' @inheritParams run
+#'
+#' @return Logical indicating whether at least the desired version of Cargo is
+#'   available.
+#'
+#' @export
+#'
+#' @examples
+#' is_available("1.50")
+#'
+is_available <- function(minimum_version) {
+  cat("In the future, please use 'run(minimum_version = minimum_version)' as this function will be deleted.\n")
+  run(minimum_version=minimum_version)
 }
 
 #' Determine Rust Target
 #'
 #' This function determines the appropriate Rust target for this instance of R.
 #'
-#' @return A string giving a Rust target
+#' @return A string giving a Rust target.
 #'
 #' @export
 #'
 #' @examples
-#' tryCatch(target(), error=function(e) cat(e$message, "\n", sep=""))
+#' target()
 #'
 target <- function() {
   info <- Sys.info()
@@ -83,79 +136,51 @@ target <- function() {
   machine <- info['machine']
   arch <- if ( machine == "x86" ) "i686"
   else if ( grepl("x86[_-]64",machine) ) "x86_64"
-  else if ( grepl("aarch64",machine) ) "aarch64"
+  else if ( machine %in% c("aarch64","arm64") ) "aarch64"
   else machine
-  fail <- function() stop(sprintf("Unsupported sysname, machine, architecture: %s, %s, %s", sysname, machine, arch))
-  if ( .Platform$OS.type == "windows" ) {
+  result <- if ( .Platform$OS.type == "windows" ) {
     if ( arch %in% c("i686","x86_64") ) paste0(arch,"-pc-windows-gnu")
-    else fail()
+    else ""
   } else {
-    if ( sysname == "Darwin" && arch == "x86_64" ) "x86_64-apple-darwin"
-    else if ( sysname == "Darwin-arm64" && arch == "aarch64" ) "aarch64-apple-darwin"
-    else if ( sysname == "Linux" ) {
+    if ( sysname == "Darwin" ) {
+      if ( arch %in% c("aarch64","x86_64") ) paste0(arch,"-apple-darwin")
+      else ""
+    } else if ( sysname == "Linux" ) {
       if ( arch %in% c("aarch64","i686","x86_64") ) paste0(arch,"-unknown-linux-gnu")
-      else fail()
+      else ""
+    } else ""
+  }
+  if ( result == "" ) {
+    stop(sprintf("Unsupported sysname, machine, architecture: %s, %s, %s\n", sysname, machine, arch))
+  } else {
+    cat("Target is: ", result, "\n", sep="")
+    result
+  }
+}
+
+
+## Private
+
+download_staticlib <- function(...) {
+  templates <- list(...)
+  info <- as.data.frame(read.dcf(file.path("..","DESCRIPTION")))
+  staticlib_filename <- "staticlib.tar.gz"
+  success <- FALSE
+  for ( url in templates ) {
+    url <- sub("${name}"   ,info$Package,url,fixed=TRUE)
+    url <- sub("${version}",info$Version,url,fixed=TRUE)
+    url <- sub("${target}" ,target(),    url,fixed=TRUE)
+    cat(paste0("Downloading static libraries from: ", url, "\n"))
+    if ( tryCatch(utils::download.file(url, staticlib_filename, mode="wb"), warning=function(e) 1, error=function(e) 1) == 0 ) {
+      success <- TRUE
+      break
     }
-    else fail()
   }
+  if ( ! success ) stop("Giving up trying to download the static library!")
+  utils::untar(staticlib_filename)
+  unlink(staticlib_filename)
 }
 
-#' Test Availability of Cargo
-#'
-#' This function checks if Cargo is available on the system.
-#'
-#' @param minimum_version A character string representing the minimum Rust
-#'   version that is needed.
-#' @param verbose Print information about the installation?
-#'
-#' @return Logical indicating whether (at least the desired version of) Cargo is
-#'   available.
-#'
-#' @export
-#'
-#' @examples
-#' if ( ! is_available("1.50") ) {
-#'   cat("Please run 'cargo::install()'.\n")
-#' }
-#'
-is_available <- function(minimum_version, verbose=TRUE) {
-  if ( Sys.getenv("R_CARGO_FORCE_FAIL") == "TRUE" ) {
-    if ( verbose ) cat("Cargo failed because of R_CARGO_FORCE_FAIL environment variable.\n")
-    return(FALSE)
-  }
-  if ( is.null(find_cargo()) ) {
-    if ( verbose ) cat("Cargo is not installed.  Please run 'cargo::install()'.\n")
-    return(FALSE)
-  }
-  if ( missing(minimum_version) && ! verbose ) return(TRUE)
-  v <- strsplit(run(args="--version", stdout=TRUE),' ',fixed=TRUE)[[1]][2]
-  if ( ! missing(minimum_version) && utils::compareVersion(v, minimum_version) < 0 ) {
-    if ( verbose ) cat(sprintf("Cargo version %s is installed, but %s is needed.  Please run 'cargo::install()'.\n",v,minimum_version))
-    return(FALSE)
-  }
-  if ( verbose ) cat(sprintf("Cargo version: %s\n",v))
-  TRUE
-}
-
-#' Install or Update Cargo
-#'
-#' This function downloads and runs the \code{rustup} installer.  If already
-#' installed, the installer simply updates the installation.  Note that,
-#' contrary to the default behavior of the installer, the system is NOT
-#' configured to modify the \code{PATH} environment variable.
-#'
-#' @param force Install without asking for user confirmation?
-#'
-#' @return \code{TRUE} if only only if the installation was successful,
-#'   invisibly.
-#'
-#' @export
-#'
-#' @examples
-#' \dontrun{
-#' install()
-#' }
-#'
 install <- function(force=FALSE) {
   windows <- .Platform$OS.type=="windows"
   if ( ! force ) {
@@ -195,8 +220,6 @@ install <- function(force=FALSE) {
   cat("\n### Cargo installation was successful. ###\n\n")
   invisible(TRUE)
 }
-
-## Private
 
 find_cargo <- function() {
   add_exe <- function(x) if ( .Platform$OS.type=="windows" ) paste0(x,".exe") else x
@@ -241,34 +264,10 @@ system3 <- function(..., env=character()) {
   system2(...)
 }
 
+# Legacy function that should be removed when CRAN has salso > 0.2.15.
 download_static_library <- function(target,
                                     mkURL1=function(pkgName,pkgVersion,osName,target) {},
                                     mkURL2=function(pkgName,pkgVersion,osName,target) {},
                                     package_source_home="..", verbose=TRUE) {
-  osName <- if ( .Platform$OS.type == "windows" ) "windows"
-  else {
-    info <- Sys.info()
-    sysname <- info['sysname']
-    if ( sysname == "Darwin" ) "macosx"
-    else if ( sysname == "Darwin-arm64" ) "macosx-arch64"
-    else if ( sysname == "Linux" ) "linux"
-    else stop(sprintf("Unsupported OS: %s",sysname))
-  }
-  desc <- read.dcf(file.path(package_source_home,"DESCRIPTION"))
-  pkgName    <- as.character(desc[,"Package"])
-  pkgVersion <- as.character(desc[,"Version"])
-  staticlib_filename <- "staticlib.tar.gz"
-  url <- mkURL1(pkgName,pkgVersion,osName,target)
-  cat(paste0("Downloading static libraries from: ", url, "\n"))
-  if ( tryCatch(utils::download.file(url, staticlib_filename, mode="wb"), warning=function(e) 1, error=function(e) 1) != 0 ) {
-    cat(sprintf("Could not download '%s' to '%s'.\n", url, staticlib_filename))
-    url <- mkURL2(pkgName,pkgVersion,osName,target)
-    cat(paste0("Downloading static libraries from: ", url, "\n"))
-    if ( tryCatch(utils::download.file(url, staticlib_filename, mode="wb"), warning=function(e) 1, error=function(e) 1) != 0 ) {
-      cat(sprintf("Could not download '%s' to '%s'.\n", url, staticlib_filename))
-      stop("Giving up trying to download the static library!")
-    }
-  }
-  utils::untar(staticlib_filename, exdir="..")
-  unlink(staticlib_filename)
+  download_staticlib(mkURL1("${name}","${version}", "", "${target}"), mkURL2("${name}","${version}", "", "${target}"))
 }

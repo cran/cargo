@@ -7,12 +7,12 @@
 target()
 }
 \value{
-A string giving a Rust target
+A string giving a Rust target.
 }
 \description{
 This function determines the appropriate Rust target for this instance of R.
 }
 \examples{
-tryCatch(target(), error=function(e) cat(e$message, "\n", sep=""))
+target()
 
 }

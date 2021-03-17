@@ -4,24 +4,26 @@
 \alias{run}
 \title{Run Cargo}
 \usage{
-run(..., verbose = TRUE)
+run(..., minimum_version)
 }
 \arguments{
-\item{...}{Arguments passed to \code{\link{system2}}, although the
-\code{command} argument is set to \code{cargo} by this function and cannot
-be set by the user.}
+\item{...}{Character vector of command line arguments passed to the
+\code{cargo} command.}
 
-\item{verbose}{Should debugging information be written to the console before
-running Cargo?}
+\item{minimum_version}{A character string representing the minimum version of
+Rust that is needed.}
 }
 \value{
-The result of the underlying call to the \code{system2} function used
-to run Cargo is returned or, if Cargo is not found, an error is thrown.
+A logical equally \code{TRUE} if and only if the minimum version is
+available and the exit status of the command is zero (indicating success).
+The function should never throw a warning or error.
 }
 \description{
-This function finds and invokes Cargo (Rust's package manager) with
-\code{...} arguments passed to \code{\link[=system2]{system2()}} but, by default, does not write to
-the user's file system (e.g., \code{~/.cargo}) to comply with CRAN policies.
+This function finds and runs Cargo (Rust's package manager) with the
+\code{...} arguments passed as command line arguments but, by default, runs
+according to CRAN policies.  First, it does not write to the user's file
+system (e.g., \code{~/.cargo}). Second, it only uses at most two parallel
+jobs when building (i.e., compiling).
 }
 \details{
 To enable caching, set the \code{R_CARGO_SAVE_CACHE} environment variable to
@@ -31,14 +33,17 @@ behavior (usually writing to \code{~/.cargo} unless the \code{CARGO_HOME}
 environment variable is set). Regardless of the location, the user is
 responsible to maintaining and clearing the cache when using the
 \code{R_CARGO_SAVE_CACHE} environment variable.
+
+To enable a specific number of parallel jobs, set the
+\code{R_CARGO_BUILD_JOBS} environment variable to the desired integer. If
+\code{R_CARGO_BUILD_JOBS} is \code{0}, Cargo will use its default behavior
+(usually using all the cores unless the \code{CARGO_BUILD_JOBS} environment
+variable is set or the \code{--jobs} argument is provided).
 }
 \examples{
-if ( is_available() ) {
-  run("--version")
-  run("--help")
-}
+run(minimum_version="1.50")
 
 }
 \seealso{
-\code{\link[base:system2]{base::system2()}}, \code{\link[base:Sys.setenv]{base::Sys.setenv()}}
+\code{\link[base:Sys.setenv]{base::Sys.setenv()}}
 }

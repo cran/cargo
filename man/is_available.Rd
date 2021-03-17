@@ -4,24 +4,20 @@
 \alias{is_available}
 \title{Test Availability of Cargo}
 \usage{
-is_available(minimum_version, verbose = TRUE)
+is_available(minimum_version)
 }
 \arguments{
-\item{minimum_version}{A character string representing the minimum Rust
-version that is needed.}
-
-\item{verbose}{Print information about the installation?}
+\item{minimum_version}{A character string representing the minimum version of
+Rust that is needed.}
 }
 \value{
-Logical indicating whether (at least the desired version of) Cargo is
+Logical indicating whether at least the desired version of Cargo is
 available.
 }
 \description{
 This function checks if Cargo is available on the system.
 }
 \examples{
-if ( ! is_available("1.50") ) {
-  cat("Please run 'cargo::install()'.\n")
-}
+is_available("1.50")
 
 }
