@@ -32,21 +32,25 @@
 #' @seealso [base::Sys.setenv()]
 #'
 #' @export
+#' @importFrom utils packageVersion
 #'
 #' @examples
 #' run(minimum_version="1.50")
 #'
 run <- function(..., minimum_version) {
+  if ( require("cargo", character.only=TRUE) ) {
+    cat(sprintf("This is version %s of the cargo package.\n",packageVersion("cargo")))
+  }
   if ( Sys.getenv("R_CARGO_FORCE_FAIL") == "TRUE" ) {
     cat("Cargo failed because of R_CARGO_FORCE_FAIL environment variable.\n")
     return(FALSE)
   }
-  cargo_cmd <- find_cargo()
+  n <- function(x) normalizePath(x, mustWork=FALSE)
+  cargo_cmd <- find_cmd("cargo")
   if ( is.null(cargo_cmd) ) {
     cat("Cargo is not found. Please see the package's INSTALL instructions.\n")
     return(FALSE)
   }
-  n <- function(x) normalizePath(x, mustWork=FALSE)
   cargo_cmd <- n(cargo_cmd)
   cat(sprintf("Cargo executable: %s\n",cargo_cmd))
   output <- suppressWarnings(system2(cargo_cmd, "--version", stdout=TRUE))
@@ -85,10 +89,20 @@ run <- function(..., minimum_version) {
     on.exit(unlink(cargo_home))
     env <- c(env, CARGO_HOME=n(cargo_home))
   }
+  if ( Sys.getenv("R_RUSTC","<unset>") != "<unset>" ) {
+    env <- c(env, RUSTC=n(Sys.getenv("R_RUSTC")))
+  } else if ( Sys.getenv("RUSTC","<unset>") == "<unset>" ) {
+    rustc_cmd <- find_cmd("rustc")
+    if ( is.null(rustc_cmd) ) {
+      cat("The Rust compiler (rustc) is not found. Please see the package's INSTALL instructions.\n")
+      return(FALSE)
+    }
+    env <- c(env, RUSTC=n(rustc_cmd))
+  }
   nCores <- Sys.getenv("R_CARGO_BUILD_JOBS","2")
   if ( nCores != "0" ) env <- c(env, CARGO_BUILD_JOBS=nCores)
   if ( length(env) > 0 ) {
-    cat(sprintf("Cargo environment variables explicitly set:\n    %s\n",paste(names(env), env, sep="=", collapse="\n    ")))
+    cat(sprintf("Cargo environment variables explicitly set:\n   %s\n",paste(names(env), env, sep="=", collapse="\n   ")))
   }
   args <- c(...)
   if ( length(args) == 0 ) return(TRUE)
@@ -100,30 +114,13 @@ run <- function(..., minimum_version) {
   } else TRUE
 }
 
-#' Test Availability of Cargo
-#'
-#' This function checks if Cargo is available on the system.
-#'
-#' @inheritParams run
-#'
-#' @return Logical indicating whether at least the desired version of Cargo is
-#'   available.
-#'
-#' @export
-#'
-#' @examples
-#' is_available("1.50")
-#'
-is_available <- function(minimum_version) {
-  cat("In the future, please use 'run(minimum_version = minimum_version)' as this function will be deleted.\n")
-  run(minimum_version=minimum_version)
-}
-
 #' Determine Rust Target
 #'
-#' This function determines the appropriate Rust target for this instance of R.
+#' This function tries to determine the appropriate Rust target for this
+#' instance of R.
 #'
-#' @return A string giving a Rust target.
+#' @return A string giving a Rust target, or \code{""} if this cannot be
+#'   determined.
 #'
 #' @export
 #'
@@ -151,11 +148,11 @@ target <- function() {
     } else ""
   }
   if ( result == "" ) {
-    stop(sprintf("Unsupported sysname, machine, architecture: %s, %s, %s\n", sysname, machine, arch))
+    cat(sprintf("Unrecognized sysname, machine, architecture, platform, os: %s, %s, %s, %s, %s\n", sysname, machine, arch, R.Version()$platform, R.Version()$os))
   } else {
     cat("Target is: ", result, "\n", sep="")
-    result
   }
+  result
 }
 
 
@@ -221,19 +218,21 @@ install <- function(force=FALSE) {
   invisible(TRUE)
 }
 
-find_cargo <- function() {
-  add_exe <- function(x) if ( .Platform$OS.type=="windows" ) paste0(x,".exe") else x
+find_cmd <- function(what) {
+  if ( .Platform$OS.type=="windows" ) what <- paste0(what,".exe")
   if ( Sys.getenv("R_CARGO_HOME","<unset>") != "<unset>" ) {
-    candidate <- file.path(Sys.getenv("R_CARGO_HOME"),"bin",add_exe("cargo"))
+    candidate <- file.path(Sys.getenv("R_CARGO_HOME"),"bin",what)
     if ( file.exists(candidate) ) return(candidate)
   }
   if ( Sys.getenv("CARGO_HOME","<unset>") != "<unset>" ) {
-    candidate <- file.path(Sys.getenv("CARGO_HOME"),"bin",add_exe("cargo"))
+    candidate <- file.path(Sys.getenv("CARGO_HOME"),"bin",what)
     if ( file.exists(candidate) ) return(candidate)
   }
-  candidate <- Sys.which("cargo")
+  candidate <- Sys.which(what)
   if ( candidate != "" && file.exists(candidate) ) return(candidate)
-  candidate <- file.path("~/.cargo","bin",add_exe("cargo"))
+  candidate <- file.path("~",".cargo","bin",what)
+  if ( file.exists(candidate) ) return(candidate)
+  candidate <- file.path(Sys.getenv(ifelse(.Platform$OS.type=="windows","USERPROFILE","HOME")),".cargo","bin",what)
   if ( file.exists(candidate) ) return(candidate)
   NULL
 }
@@ -264,10 +263,3 @@ system3 <- function(..., env=character()) {
   system2(...)
 }
 
-# Legacy function that should be removed when CRAN has salso > 0.2.15.
-download_static_library <- function(target,
-                                    mkURL1=function(pkgName,pkgVersion,osName,target) {},
-                                    mkURL2=function(pkgName,pkgVersion,osName,target) {},
-                                    package_source_home="..", verbose=TRUE) {
-  download_staticlib(mkURL1("${name}","${version}", "", "${target}"), mkURL2("${name}","${version}", "", "${target}"))
-}

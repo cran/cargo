@@ -1,3 +1,7 @@
+0.1.29 (2021-03-29)
+  * Explicitly search for rustc and set the RUSTC environment variable.
+  * Fix ERROR on Solaris and NOTE on development version of R.
+
 0.1.28 (2021-03-16)
   * Improved run() function to return a logical indicated success, avoids
     warnings and errors, and limits the number of parallel jobs to two (as per

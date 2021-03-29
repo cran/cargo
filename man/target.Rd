@@ -7,10 +7,12 @@
 target()
 }
 \value{
-A string giving a Rust target.
+A string giving a Rust target, or \code{""} if this cannot be
+determined.
 }
 \description{
-This function determines the appropriate Rust target for this instance of R.
+This function tries to determine the appropriate Rust target for this
+instance of R.
 }
 \examples{
 target()
