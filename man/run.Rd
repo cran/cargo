@@ -4,26 +4,29 @@
 \alias{run}
 \title{Run Cargo}
 \usage{
-run(..., minimum_version)
+run(..., minimum_version = file.path("..", "DESCRIPTION"), verbose = TRUE)
 }
 \arguments{
 \item{...}{Character vector of command line arguments passed to the
 \code{cargo} command.}
 
 \item{minimum_version}{A character string representing the minimum version of
-Rust that is needed.}
+Rust that is needed. Or a path to the DESCRIPTION file, in which case the
+value is found from the field: \code{SystemRequirements: Cargo (>= XXXX)}.}
+
+\item{verbose}{Should Cargo be run in non-quiet mode?}
 }
 \value{
-A logical equally \code{TRUE} if and only if the minimum version is
+A logical equaling \code{TRUE} if and only if the minimum version is
 available and the exit status of the command is zero (indicating success).
-The function should never throw a warning or error.
+The function is designed to never throw a warning or error.
 }
 \description{
 This function finds and runs Cargo (Rust's package manager) with the
 \code{...} arguments passed as command line arguments but, by default, runs
-according to CRAN policies.  First, it does not write to the user's file
+according to CRAN policies. First, it does not write to the user's file
 system (e.g., \code{~/.cargo}). Second, it only uses at most two parallel
-jobs when building (i.e., compiling).
+jobs.
 }
 \details{
 To enable caching, set the \code{R_CARGO_SAVE_CACHE} environment variable to
@@ -41,7 +44,7 @@ To enable a specific number of parallel jobs, set the
 variable is set or the \code{--jobs} argument is provided).
 }
 \examples{
-run(minimum_version="1.50")
+run(minimum_version="1.54")
 
 }
 \seealso{

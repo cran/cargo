@@ -2,7 +2,7 @@
 % Please edit documentation in R/cargo.R
 \name{target}
 \alias{target}
-\title{Determine Rust Target}
+\title{Determine the Rust Build Target}
 \usage{
 target()
 }
