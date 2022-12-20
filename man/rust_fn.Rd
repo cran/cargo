@@ -11,7 +11,8 @@ rust_fn(
   verbose = FALSE,
   cached = TRUE,
   longjmp = TRUE,
-  invisible = FALSE
+  invisible = FALSE,
+  force = FALSE
 )
 }
 \arguments{
@@ -24,12 +25,14 @@ variable names come for all other unnamed arguments.  See example.}
 \item{minimum_version}{A character string representing the minimum version of
 Rust that is needed. Or a path to the root of a package (i.e., the
 directory containing the DESCRIPTION file), in which case the value is
-found from the field: \code{SystemRequirements: Cargo (>= XXXX)}.}
+found from the field: \code{SystemRequirements: Cargo (>= XXXX)}. For the
+\code{search_methods} being \code{"cache"}, the shell command \code{rustup}
+is used to upgrade the Cargo installation if needed.}
 
 \item{verbose}{If \code{TRUE}, Cargo prints compilation details.  If
 \code{FALSE}, Cargo is run in quiet mode, except for the first time this
-function is run.  If \code{"never"}, Cargo is always run in quiet mode.
-In any case, errors in code are always shown.}
+function is run.  If \code{"never"}, Cargo is always run in quiet mode. In
+any case, errors in code are always shown.}
 
 \item{cached}{Should Cargo use previously compiled artifacts?}
 
@@ -37,6 +40,9 @@ In any case, errors in code are always shown.}
 longjmp functionality when Rust code panics?}
 
 \item{invisible}{Should the compiled function return values invisibly?}
+
+\item{force}{If \code{TRUE}, write to cache directory on first usage without
+asking for user confirmation.}
 }
 \value{
 An R function implemented with the supplied Rust code.

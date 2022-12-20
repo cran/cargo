@@ -11,19 +11,21 @@
 #'   \code{c('rand = "0.8.5"','rand_pcg = "0.3.1"')}.
 #' @param verbose If \code{TRUE}, Cargo prints compilation details.  If
 #'   \code{FALSE}, Cargo is run in quiet mode, except for the first time this
-#'   function is run.  If \code{"never"}, Cargo is always run in quiet mode.
-#'   In any case, errors in code are always shown.
+#'   function is run.  If \code{"never"}, Cargo is always run in quiet mode. In
+#'   any case, errors in code are always shown.
 #' @param cached Should Cargo use previously compiled artifacts?
 #' @param longjmp Should the compiled function use the faster (but experimental)
 #'   longjmp functionality when Rust code panics?
 #' @param invisible Should the compiled function return values invisibly?
+#' @param force If \code{TRUE}, write to cache directory on first usage without
+#'   asking for user confirmation.
 #'
 #' @return An R function implemented with the supplied Rust code.
 #'
 #' @importFrom utils packageDate packageVersion
 #' @export
 #'
-rust_fn <- function(..., dependencies=character(0), minimum_version="1.31.0", verbose=FALSE, cached=TRUE, longjmp=TRUE, invisible=FALSE) {
+rust_fn <- function(..., dependencies=character(0), minimum_version="1.31.0", verbose=FALSE, cached=TRUE, longjmp=TRUE, invisible=FALSE, force=FALSE) {
   # Parse arguments
   mc <- match.call(expand.dots = FALSE)
   args <- mc[['...']]
@@ -33,7 +35,8 @@ rust_fn <- function(..., dependencies=character(0), minimum_version="1.31.0", ve
   all_args <- paste0(args_with_type, collapse=", ")
   code <- sprintf("#[allow(unused_imports)] use roxido::*; #[roxido(longjmp = %s, invisible = %s)] fn func(%s) -> Rval { %s\n}", tolower(isTRUE(longjmp)), tolower(isTRUE(invisible)), all_args, paste0(code, collapse="\n"))
   # Set-up directories
-  path_info <- get_lib_path(verbose, cached)
+  path_info <- get_lib_path(verbose, cached, force)
+  if ( is.null(path_info) ) return(invisible())
   if ( path_info[['success']] ) {
     on.exit(add=TRUE, unlink(path_info[['lock']], recursive=TRUE, force=TRUE))
   }
@@ -73,7 +76,11 @@ rust_fn <- function(..., dependencies=character(0), minimum_version="1.31.0", ve
   })
   setwd(rustlib_directory)
   options <- if ( ! isTRUE(verbose) ) "--quiet" else character(0)
-  if ( run(options, "build", "--release", minimum_version=minimum_version, methods="cache", environment_variables=c(ROXIDO_R_FUNC_DIR=r_code_directory), rustflags=rustflags, must_be_silent=!isTRUE(verbose)) != 0 ) stop("Couldn't build Rust code.")
+  run_result <- run(options, "build", "--release", minimum_version=minimum_version, leave_no_trace=FALSE,
+                    environment_variables=c(ROXIDO_R_FUNC_DIR=r_code_directory), rustflags=rustflags, verbose=isTRUE(verbose))
+  if ( run_result != 0 ) {
+    stop("Couldn't build Rust code.")
+  }
   # Load the shared library
   dynlib.base <- if ( !is_windows ) paste0("lib",libname) else libname
   dynlib.ext <- if ( is_mac ) ".dylib" else .Platform$dynlib.ext
@@ -96,9 +103,21 @@ rust_fn <- function(..., dependencies=character(0), minimum_version="1.31.0", ve
   get(name, envir=parent.frame)
 }
 
-get_lib_path <- function(verbose, cached) {
-  parent <- tools::R_user_dir("cargo", "cache")
+get_lib_path <- function(verbose, cached, force) {
+  parent <- cache_dir()
   path <- file.path(parent, "rust_fn")
+  if ( ! dir.exists(path) ) {
+    message <- sprintf('\nThis function needs to cache files in the directory:
+    %s
+The cargo package purges cache items every %s days, but you can change
+the frequency by modifying the last line of the "%s" file in
+the directory.  You can revoke permission at any time by deleting the
+directory.\n\n', path, days_until_next_purge, basename(last_purge_filename()))
+    if ( ! get_permission(message, NULL, force) ) {
+      return(NULL)
+    }
+    purge_cache(TRUE)
+  }
   lock <- paste0(path,".lock")
   success <- TRUE
   if ( ! dir.exists(parent) ) {  # Check if it exists.
@@ -114,19 +133,34 @@ get_lib_path <- function(verbose, cached) {
     path <- file.path(tmpdir=tempdir(check=TRUE), paste0("roxido-",Sys.getpid()))
   }
   stamp_file <- file.path(path, "stamp")
-  cargo_version <- packageVersion("cargo")
-  if ( ! isTRUE(cached) || ! file.exists(stamp_file) || cargo_version > readRDS(stamp_file) ) {
-    if ( ! identical("never",verbose) ) verbose <- TRUE
-    dir.create(path, showWarnings=FALSE)
-    saveRDS(cargo_version, file=stamp_file)
-    dir.create(file.path(path,"R"), showWarnings=FALSE)
-    rustlib_directory <- file.path(path,"rust")
-    dir.create(rustlib_directory, showWarnings=FALSE)
-    file.copy(system.file(file.path("template","src","rust","roxido"), package="cargo"), rustlib_directory, recursive=TRUE)
-    file.copy(system.file(file.path("template","src","rust","roxido_macro"), package="cargo"), rustlib_directory, recursive=TRUE)
-    unlink(file.path(path, "rust", "target"),  recursive=TRUE, force=TRUE)
+  if ( ! isTRUE(cached) || ! file.exists(stamp_file) || packageVersion("cargo") > readRDS(stamp_file) ) {
+    copy_from_template()
+  }
+  verbose <- if ( isTRUE(verbose) ) {
+    TRUE
+  } else if ( identical("never", verbose) ) {
+    FALSE
+  } else {
+    if ( length(list.files(file.path(path,"R"))) == 0 ) {
+      msg("Showing compilation details on first call to 'rust_fn' in this session.\nSuppress this with 'verbose=\"never\"'.\n")
+      TRUE
+    } else FALSE
   }
   list(path=path, lock=lock, success=success, verbose=verbose)
+}
+
+copy_from_template <- function() {
+  parent <- cache_dir()
+  path <- file.path(parent, "rust_fn")
+  unlink(path, recursive=TRUE, force=TRUE)
+  dir.create(path, showWarnings=FALSE)
+  saveRDS(packageVersion("cargo"), file=file.path(path, "stamp"))
+  dir.create(file.path(path,"R"), showWarnings=FALSE)
+  rustlib_directory <- file.path(path, "rust")
+  dir.create(rustlib_directory, showWarnings=FALSE)
+  file.copy(system.file(file.path("template","src","rust","roxido"), package="cargo"), rustlib_directory, recursive=TRUE)
+  file.copy(system.file(file.path("template","src","rust","roxido_macro"), package="cargo"), rustlib_directory, recursive=TRUE)
+  unlink(file.path(path, "rust", "target"), recursive=TRUE, force=TRUE)
 }
 
 globals <- new.env(parent=emptyenv())

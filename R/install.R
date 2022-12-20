@@ -12,64 +12,29 @@
 #' @export
 #'
 install <- function(force=FALSE) {
-  install_engine(force, FALSE, FALSE)
-}
-
-install_engine <- function(force, use_packageStartupMessage, no_prompting) {
-  msg <- function(...) {
-    if ( isTRUE(use_packageStartupMessage) ) {
-      packageStartupMessage(..., appendLF=FALSE)
-    } else {
-      base::message(..., appendLF=FALSE)
-    }
-  }
-  cache_dir <- tools::R_user_dir("cargo", "cache")
-  days_until_next_purge <- 91
-  last_purge_filename <- file.path(cache_dir,"last-purge")
-  message <- sprintf(
-    '\nThe cargo package would like to download Rust from https://rustup.rs/ (an
-official website of the Rust project) and then install Rust into the directory:
+  cache_dir <- cache_dir()
+  message <- sprintf('\nThis function will download the Rust toolchain from https://rustup.rs
+(an official Rust website) and install it into the directory:
     %s
-That directory will then be used to keep the Rust installation up-to-date. It
-will also be used to: 1. cache shared libraries for R packages based on Rust
-and 2. enable cached compilation for the cargo::rust_fn function. The cargo
-package purges unused cache items every %s days, but you can change the
-frequency by modifying the last line of the "%s" file in that
-directory. You can revoke permission at any time by deleting that directory.\n\n',
-    cache_dir, days_until_next_purge, basename(last_purge_filename))
-  if ( isFALSE(force) ) {
-    if ( no_prompting ) return(invisible(FALSE))
-    if ( ! interactive() ) {
-      msg("Please try again in an interactive session or use 'cargo::install(force=TRUE)'.\n")
-      return(invisible(FALSE))
-    }
-    while ( TRUE ) {
-      msg(message)
-      msg("Do you agree? [y/N] ")
-      response <- toupper(trimws(readline()))
-      if ( response %in% c("N","") ) return(invisible(FALSE))
-      if ( response %in% c("Y") ) break
-      msg("\n")
-    }
-    msg("Proceeding with installation. Please be patient.\n")
-  } else {
-    msg(message)
-    msg("Agreement accepted due to 'force=TRUE'.\n")
-  }
-  msg("\n")
-  cargo_home  <- file.path(cache_dir,"cargo")
-  rustup_home <- file.path(cache_dir,"rustup")
-  vars <- get_homes(cargo_home, rustup_home)
+The directory will then be used to keep the Rust installation up-to-date
+and to cache compilation artifacts.  The cargo package purges cache items
+every %s days, but you can change the frequency by modifying the last line
+of the "%s" file in the directory. You can revoke permission at
+any time by deleting the directory.\n\n', cache_dir, days_until_next_purge, basename(last_purge_filename()))
+  suggestion <- "Please try again in an interactive session or use 'cargo::install(force=TRUE)'.\n"
+  if ( ! get_permission(message, suggestion, force) ) return(invisible(FALSE))
+  windows <- .Platform$OS.type=="windows"
+  vars <- c(CARGO_HOME= normalizePath(file.path(cache_dir,"cargo"),  mustWork=FALSE),
+            RUSTUP_HOME=normalizePath(file.path(cache_dir,"rustup"), mustWork=FALSE))
   if ( unlink(vars, recursive=TRUE, force=TRUE) != 0 ) {
     msg(sprintf("Could not clean out installation directory:\n    %s\nPlease delete this directory.\n",normalizePath(cache_dir)))
     return(invisible(FALSE))
   }
   dir.create(cache_dir, showWarnings=FALSE, recursive=TRUE)
-  windows <- .Platform$OS.type=="windows"
   rustup_init <- file.path(cache_dir, sprintf("rustup-init.%s",ifelse(windows,"exe","sh")))
   URL <- ifelse(windows,"https://win.rustup.rs/x86_64","https://sh.rustup.rs")
-  if ( tryCatch(utils::download.file(URL, rustup_init, mode="wb", quiet=use_packageStartupMessage), warning=function(e) 1, error=function(e) 1) != 0 ) {
-    msg(sprintf("Could not download '%s' to '%s'.\nPlease try again by running 'cargo::install()' in an interactive session.\n", URL, rustup_init))
+  if ( tryCatch(utils::download.file(URL, rustup_init, mode="wb", quiet=FALSE), warning=function(e) 1, error=function(e) 1) != 0 ) {
+    msg(sprintf("\nCould not download '%s' to '%s'.\nPlease try again by running 'cargo::install()' in an interactive session.\n\n", URL, rustup_init))
     return(invisible(FALSE))
   }
   msg("Running installation. Please be patient.\n")
@@ -94,7 +59,33 @@ directory. You can revoke permission at any time by deleting that directory.\n\n
   unlink(rustup_init)
   unlink(rustup_init_stdout)
   unlink(rustup_init_stderr)
-  writeLines(c("1",as.character(Sys.Date()),days_until_next_purge), last_purge_filename)
-  msg("Installation was successfull.\n")
+  purge_cache(TRUE)
+  copy_from_template()
+  msg("Installation was successfull.\n\n")
   invisible(TRUE)
 }
+
+get_permission <- function(message, suggestion=NULL, force=FALSE) {
+  windows <- .Platform$OS.type=="windows"
+  if ( isFALSE(force) ) {
+    if ( ! interactive() && ! is.null(suggestion) ) {
+      msg(suggestion)
+      return(FALSE)
+    }
+    while ( TRUE ) {
+      msg(message)
+      response <- toupper(trimws(readline("Do you agree? [y/N] ")))
+      if ( response %in% c("Y","YES") ) break
+      msg("\n")
+      if ( response %in% c("N","NO","") ) return(FALSE)
+    }
+  } else {
+    msg(message)
+    msg("Agreement accepted due to 'force=TRUE'.\n")
+  }
+  msg("\n")
+  TRUE
+}
+
+msg <- function(...) base::message(..., appendLF=FALSE)
+
