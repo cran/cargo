@@ -12,6 +12,7 @@ run(
   environment_variables = list(),
   rustflags = NULL,
   verbose = TRUE,
+  run_twice = FALSE,
   stdout = "",
   stderr = ""
 )
@@ -55,6 +56,10 @@ unchanged.}
 \code{FALSE}, no details are shown.  If it is a connection, then details
 are shown and also written to the connection.}
 
+\item{run_twice}{Should the cargo command be run twice? The environment
+variable \code{R_CARGO_RUN_COUNTER} is set to either \code{1} or \code{2}
+during each run.}
+
 \item{stdout}{See argument of the same name in \code{\link[base:system2]{base::system2()}}.}
 
 \item{stderr}{See argument of the same name in \code{\link[base:system2]{base::system2()}}.}
@@ -68,8 +73,8 @@ This function runs Cargo (Rust's package manager) with the \code{...}
 arguments passed as command line arguments.
 }
 \examples{
-if ( run("--version") != 0 ) {
-    message("Cargo is not installed. Please run cargo::install() in an interactive session.")
+if (run("--version") != 0) {
+  message("Cargo is not installed. Please run cargo::install() in an interactive session.")
 }
 
 }
